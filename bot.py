@@ -4,7 +4,7 @@ from datetime import datetime
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
-UMBRAL_USD = 250
+UMBRAL_USD = 350
 ORIGEN = 'SCL'
 DESTINO = 'BCN'
 CABINA = 'economy'
