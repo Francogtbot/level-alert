@@ -1,59 +1,63 @@
-import os
 import requests
-from datetime import datetime
+import datetime
+import os
 
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
-UMBRAL_USD = 1000
-ORIGEN = 'SCL'
-DESTINO = 'BCN'
-CABINA = 'economy'
+# Parámetros del vuelo
+origin = "SCL"
+destination = "BCN"
+currency = "USD"
+threshold_usd = 500  # Umbral en dólares
+date_from = (datetime.datetime.today() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+date_to = (datetime.datetime.today() + datetime.timedelta(days=40)).strftime("%Y-%m-%d")
 
-def obtener_precio():
-    today = datetime.today().strftime('%Y%m%d')
-    url = 'https://www.flylevel.com/en/ndc/flightcalendar/FlightCalendarPricesLevel'
-    params = {
-        'origin': ORIGEN,
-        'destination': DESTINO,
-        'startDate': today,
-        'lengthOfStay': 7,
-        'cabinClass': CABINA,
-        'currency': 'USD'
-    }
-    resp = requests.get(url, params=params)
-    if resp.status_code != 200:
-        print(f"Error en la petición: {resp.status_code}")
-        print(resp.text)
-        return []
+# API URL
+url = (
+    f"https://www.flylevel.com/en/ndc/flightcalendar/FlightCalendarPricesLevel?"
+    f"origin={origin}&destination={destination}&originDepartureDate={date_from}"
+    f"&destinationReturnDate={date_to}&tripType=ROUND_TRIP&currencyCode={currency}&adt=1&chd=0&inf=0"
+)
 
-    try:
-        data = resp.json()
-    except ValueError as e:
-        print("Error al decodificar JSON:", e)
-        print(resp.text)
-        return []
+# Encabezados para evitar error 403
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/114.0.0.0 Safari/537.36"
+}
 
-    precios = []
-    for item in data.get('Result', []):
-        try:
-            trip_price = float(item.get('Items', [''])[0].split(';')[2])
-            precios.append((item.get('FlightDate'), trip_price))
-        except Exception as e:
-            print("Error al procesar precio:", e)
-    return precios
+try:
+    response = requests.get(url, headers=headers)
+    if response.status_code == 403:
+        raise Exception("Acceso denegado (403). Verifica User-Agent o si bloquearon bots.")
+    response.raise_for_status()
+    data = response.json()
+    
+    # Obtener la fecha y precio más bajo
+    lowest_price = float("inf")
+    best_date = None
 
-def enviar_telegram(texto):
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
-    requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID, 'text': texto})
+    for date, price_info in data.get("outboundCalendar", {}).items():
+        price = price_info.get("lowestFare")
+        if price and price < lowest_price:
+            lowest_price = price
+            best_date = date
 
-def tarea():
-    precios = obtener_precio()
-    bajos = [(d, p) for d, p in precios if p <= UMBRAL_USD]
-    if bajos:
-        msg = f"Precios bajo USD {UMBRAL_USD}:\n"
-        for d, p in bajos:
-            msg += f"- {d}: USD {p:.2f}\n"
-        enviar_telegram(msg)
+    if lowest_price < threshold_usd:
+        # Enviar mensaje por Telegram
+        message = (
+            f"🔔 ¡Precio bajo detectado! Vuelo {origin} → {destination}\n"
+            f"📅 Fecha: {best_date}\n"
+            f"💸 Precio: ${lowest_price} USD\n"
+            f"✈️ Nivel inferior a tu umbral de ${threshold_usd} USD"
+        )
+        telegram_token = os.getenv("TELEGRAM_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        telegram_url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+        payload = {"chat_id": chat_id, "text": message}
+        telegram_response = requests.post(telegram_url, data=payload)
+        telegram_response.raise_for_status()
+    else:
+        print(f"Ningún precio bajo umbral. Mínimo: {lowest_price} USD")
 
-tarea()
+except Exception as e:
+    print("Error en la petición:", e)
 # test
