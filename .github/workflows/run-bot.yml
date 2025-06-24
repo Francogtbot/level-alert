@@ -1,4 +1,4 @@
-name: Run Bot
+name: Runn Bot
 on:
   workflow_dispatch:
 
